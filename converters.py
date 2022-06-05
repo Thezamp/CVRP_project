@@ -28,24 +28,38 @@ def convert_to_CARP(G, R):
 
 
 def convert_to_CVRP(G, R):
+    """
+    Converts the road graph into a CVRP graph
+    :param G: edgelist of the road graph
+    :type G: pd.dataframe
+    :param R: edgelist of the mandatory edges
+    :type R: pd.dataframe
+    :return: A osmnx graph edgelist of the CVRP problem
+    :rtype: pd.dataframe
+    """
     mandatory_edges_list = R[['source', 'target']].to_records(index=False)
     start = time.time()
     new_graph = {}
-    # depot node
     connections = {}
     cnt = 1
+
+    #add all depot-old_node edges as new nodes
     for (h, l) in mandatory_edges_list:
         connections[(h, l)] = {'cost': nx.shortest_path_length(G, 0, h, weight='cost')}
 
     new_graph[(0, 0)] = connections
 
-    # edges map to nodes
+    #add the other edges as new nodes
     nodes_attr = {}
     for (i, j) in mandatory_edges_list:
         nodes_attr[f'({i}, {j})'] = R.loc[(R.source == i) & (R.target == j)].request.values[0]
+
+        #just gives an idea of the current state
         cnt += 1
         if (cnt % 100 == 0):
             print(cnt)
+        #
+
         connections = {}
         edge_cost = G.get_edge_data(i, j)['cost']
         for (h, l) in mandatory_edges_list:
@@ -60,4 +74,7 @@ def convert_to_CVRP(G, R):
     nx.set_node_attributes(G_out, nodes_attr, 'request')
 
     print(time.time() - start)
-    return G_out
+    # return G_out
+    out = nx.to_pandas_edgelist(G_out)
+    out.reset_index(inplace=True)
+    return out

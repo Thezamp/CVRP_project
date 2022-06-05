@@ -31,6 +31,15 @@ speed_limits_dict = {'living_street': 20, 'primary': 70, 'primary_link': 70, 're
 
 
 def clean_graph_from_osm(query):
+    """
+    Uses osmnx to get the graph of the town in query, returns a maximally connected graph with default values instesad of nan
+    :param query: a string containing the query to graph_from_place
+    :type query: string
+    :return: a touple with the edgelist from the corrected graph, and the fully connected graph without correction (to
+    be used for graphics
+    :rtype: (pd.dataframe, Graph)
+    """
+
     # load the graph
     g = ox.graph_from_place(query, network_type='drive', simplify=True)
 
@@ -55,10 +64,18 @@ def clean_graph_from_osm(query):
 
     df['maxspeed'] = df['maxspeed'].fillna(df['highway'].map(speed_limits_dict))
 
-    #return df[['source', 'target', 'maxspeed', 'length', 'highway', 'name']]
     return df,G0
 
-def get_coeff(edgelist):
+def get_coeff(edgelist, population):
+    """
+    Returns the coefficients for spreading the population among two types of roads
+    :param edgelist: and edgelist representation of the road graph
+    :type edgelist: pd.Dataframe
+    :param population: the population of the town
+    :type population: int
+    :return: a touple containing the two density coefficients, the population in a street is c*length
+    :rtype: (float,float)
+    """
     mandatory = edgelist.loc[
         edgelist.highway.isin(['residential', 'tertiary', 'living_street', 'road', 'unclassified'])]
 
@@ -76,6 +93,19 @@ def get_coeff(edgelist):
 
 
 def map_population(l, t, ci, cm):
+    """
+    performs population mapping
+    :param l: length of the road
+    :type l: float
+    :param t: type of the road
+    :type t: string
+    :param ci: coefficient for "inhabited"
+    :type ci: float
+    :param cm: coefficient for "movement"
+    :type cm: float
+    :return: population in the road
+    :rtype: float
+    """
     if t in ['tertiary', 'road', 'unclassified']:
         return l * cm
     elif t in ['living_street', 'residential']:
@@ -85,11 +115,25 @@ def map_population(l, t, ci, cm):
 
 
 
-def main(query, extract_graph=False):
+def prepare_graph(query,population,production,extract_graph=False):
+    """
+    Load from memory, or extracts from query the CVRP graph to be passed to the solver
+    :param query: osmnx town query
+    :type query: string
+    :param population: town population
+    :type population: int
+    :param production: production pro-capita, per each gathering
+    :type production: float
+    :param extract_graph: whether to build the graph anew
+    :type extract_graph: bool
+    :return: a tuple with the CVRP graph edgelist, the set of mandatory edges, the original nx fully connected graph for
+    visualization
+    :rtype:(dataframe,dataframe,osmnx.graph)
+    """
     edgelist, G_map = clean_graph_from_osm(query)
     if extract_graph:
 
-        c_inh, c_move = get_coeff(edgelist)
+        c_inh, c_move = get_coeff(edgelist, population)
         edgelist['population'] = edgelist.apply(lambda x: map_population(x.length, x.highway, c_inh,
                                                                          c_move), axis=1)
         edgelist['request'] = edgelist['population'] * production
@@ -106,26 +150,33 @@ def main(query, extract_graph=False):
 
         # ACVRP
         edgelist.to_csv('graphs_data/full_graph.csv')
-        G = convert_to_CVRP(G_CARP, R_df)
-        edges_vrp = nx.to_pandas_edgelist(G)
+        edges_vrp = convert_to_CVRP(G_CARP, R_df)
+        #edges_vrp = nx.to_pandas_edgelist(G)
+
+        # edges_vrp.reset_index()
+        R_df.reset_index(inplace=True)
         edges_vrp.to_csv('graphs_data/Graph_CVRP.csv')
-
         R_df.to_csv('graphs_data/mandatory_edges.csv')
-    else:
-        edges_vrp = pd.read_csv('graphs_data/Graph_CVRP.csv')
 
-        R_df = pd.read_csv('graphs_data/mandatory_edges.csv')
+
+    #do this anyway due to how the edgelist is stored: '(0, 0)' instead of (0, 0)
+    edges_vrp = pd.read_csv('graphs_data/Graph_CVRP.csv')
+    #
+    R_df = pd.read_csv('graphs_data/mandatory_edges.csv')
 
     G = nx.from_pandas_edgelist(edges_vrp[['source', 'target', 'cost']], edge_attr=['cost'])
     R_df = R_df[['node', 'request']]
 
-    routes = solve_CVRP(K = trucks, G=G, R_df=R_df, capacity=capacity)
-    colors = ['r', 'g', 'b', 'y', 'm']
-    for r in range(5):
-        save_route(G_map,routes[r],colors[r],r)
-    return
+
+    return G, R_df, G_map
 
 
 
 if __name__ == '__main__':
-    main('Caerano, Italy', extract_graph=False)
+    G,R_df, G_map = prepare_graph('Caerano, Italy',population, production, extract_graph=True)
+
+
+    routes,capacities = solve_CVRP(K = trucks, G=G, R_df=R_df, capacity=capacity)
+    colors = ['r', 'g', 'b', 'y', 'm']
+    for r in range(5):
+        save_route(G_map,routes[r],colors[r],r)

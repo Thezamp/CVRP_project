@@ -7,9 +7,11 @@ import matplotlib.pyplot as plt
 
 def solve_CVRP(K, G, R_df, capacity):
     # update the graph nodes with the requests values
-    request_dict = dict(zip(R_df.node, R_df.request))
-    request_dict['(0, 0)'] = 0
-    nx.set_node_attributes(G, request_dict, 'request')
+    request_for_node = dict(zip(R_df.node, R_df.request))
+    request_for_node['(0, 0)'] = 0
+    nx.set_node_attributes(G, request_for_node, 'request')
+
+    #convert names to simple number, save the back_conversion
     G = nx.convert_node_labels_to_integers(G, label_attribute='matching')
 
     cost_matrix = nx.to_numpy_matrix(G, weight='cost')
@@ -70,14 +72,15 @@ def solve_CVRP(K, G, R_df, capacity):
             to_service.remove(best_c)
             capacities[best_k] -= request_values[best_c]
         except KeyError:
-            return {}
+            #the trucks were miscalculated
+            return {},-1
 
     new_routes = {}
     for k in range(K):
         route = routes[k]
         new_routes[k] = [conversion_dict[v] for v in route]
 
-    return new_routes
+    return new_routes,capacities
 
 
 def save_route(G, route, c,n):
@@ -90,4 +93,3 @@ def save_route(G, route, c,n):
     path = path[1:]
     fig,ax = ox.plot.plot_graph_route(G, path, c)
     fig.savefig(f'results/route_{n}')
-    
